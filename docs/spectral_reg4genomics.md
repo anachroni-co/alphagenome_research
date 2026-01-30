@@ -80,7 +80,36 @@ class EnhancedContactPredictor(nn.Module):
             )
             predictions["spectral_loss"] = spectral_loss
 
-        return predictions
+    return predictions
+```
+
+### Formal Wrapper Configuration
+When integrating into AlphaGenome-style pipelines, the wrapper follows a strict
+decorator pattern: it does not modify the base architecture or its backward
+pass, and it only augments training with explicit spectral losses.
+
+```python
+from dataclasses import dataclass
+from typing import Literal
+
+@dataclass(frozen=True)
+class SpectralRegularizationConfig:
+    lambda_low: float = 0.05
+    lambda_high: float = 0.1
+    lambda_sym: float = 0.01
+    spectral_operator: Literal["fft", "dct", "laplacian"] = "fft"
+    low_freq_cutoff: float = 0.15
+    high_freq_cutoff: float = 0.6
+    adaptive: bool = False
+```
+
+```python
+predictor = SpectralEnhancedContactPredictor(
+    base_predictor=base_model,
+    config=SpectralRegularizationConfig(),
+)
+
+preds, loss_dict = predictor(inputs, targets=targets, training=True)
 ```
 
 ## Performance

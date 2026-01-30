@@ -12,9 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Contact map predictor with spectral regularization integration."""
+"""Contact map predictor wrapper with spectral regularization integration."""
 
 from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Literal
 
 import torch
 import torch.nn as nn
@@ -22,6 +25,19 @@ import torch.nn as nn
 from alphagenome_research.model.spectral_regularizer import (
     SpectralContactRegularizer,
 )
+
+
+@dataclass(frozen=True)
+class SpectralRegularizationConfig:
+  """Configuration for spectral regularization."""
+
+  lambda_low: float = 0.05
+  lambda_high: float = 0.1
+  lambda_sym: float = 0.01
+  spectral_operator: Literal["fft", "dct", "laplacian"] = "fft"
+  low_freq_cutoff: float = 0.15
+  high_freq_cutoff: float = 0.6
+  adaptive: bool = False
 
 
 class SpectralEnhancedContactPredictor(nn.Module):
@@ -33,70 +49,75 @@ class SpectralEnhancedContactPredictor(nn.Module):
   def __init__(
       self,
       base_predictor: nn.Module,
-      use_spectral_reg: bool = True,
-      spectral_kwargs: dict[str, float] | None = None,
+      config: SpectralRegularizationConfig | None = None,
+      data_loss_fn: nn.Module | None = None,
   ) -> None:
     super().__init__()
 
-    self.base_predictor = base_predictor
-    self.use_spectral_reg = use_spectral_reg
+    self.base = base_predictor
+    self.config = config or SpectralRegularizationConfig()
+    self.data_loss_fn = data_loss_fn or nn.MSELoss()
 
-    self.spectral_reg: SpectralContactRegularizer | None = None
-    if use_spectral_reg:
-      spectral_kwargs = spectral_kwargs or {}
-      self.spectral_reg = SpectralContactRegularizer(**spectral_kwargs)
+    if self.config.spectral_operator != "fft":
+      raise NotImplementedError(
+          "Only FFT-based spectral regularization is implemented."
+      )
 
-    # Capa de ajuste post-predicción (opcional)
-    self.post_process = nn.Sequential(
-        nn.Conv2d(1, 16, kernel_size=3, padding=1),
-        nn.ReLU(),
-        nn.Conv2d(16, 1, kernel_size=3, padding=1),
-        nn.Sigmoid(),  # Contactos son probabilidades
+    self.spectral_reg = SpectralContactRegularizer(
+        lambda_high=self.config.lambda_high,
+        lambda_low=self.config.lambda_low,
+        lambda_sym=self.config.lambda_sym,
+        freq_threshold_high=self.config.high_freq_cutoff,
+        freq_threshold_low=self.config.low_freq_cutoff,
     )
 
   def forward(
-      self, sequence_embedding: torch.Tensor, return_spectral_metrics: bool = False
-  ) -> dict[str, torch.Tensor | dict[str, float]]:
+      self,
+      sequence_embedding: torch.Tensor,
+      targets: torch.Tensor | None = None,
+      training: bool = True,
+  ) -> tuple[torch.Tensor, dict[str, torch.Tensor]] | torch.Tensor:
     """
     Args:
         sequence_embedding: [batch, L, D] - Embedding de secuencia
-        return_spectral_metrics: Si True, retorna métricas de diagnóstico
+        targets: [batch, L, L] - Ground truth, opcional
+        training: Si True, calcula pérdidas de regularización
 
     Returns:
         contact_map: [batch, L, L] - Mapa de contacto predicho
-        spectral_loss: Pérdida de regularización (si se usa)
-        metrics: Métricas de diagnóstico (si se piden)
+        loss_dict: Pérdidas desglosadas (si training y targets provistos)
     """
     # 1. Predicción base
-    base_pred = self.base_predictor(sequence_embedding)
+    contact_map = self.base(sequence_embedding)
 
-    # 2. Post-procesamiento
-    if self.post_process is not None:
-      # Añadir dimensión de canal
-      base_pred = base_pred.unsqueeze(1)  # [batch, 1, L, L]
-      contact_map = self.post_process(base_pred).squeeze(1)
-    else:
-      contact_map = base_pred
+    if not training or targets is None:
+      return contact_map
 
-    # 3. Aplicar regularización espectral (solo en entrenamiento)
-    spectral_loss = torch.tensor(0.0, device=contact_map.device)
-    spectral_metrics: dict[str, float] = {}
+    loss_data = self._data_loss(contact_map, targets)
+    loss_spectral, spectral_metrics = self.spectral_reg(
+        contact_map, contact_target=targets
+    )
+    loss_sym = spectral_metrics["symmetry_loss"]
 
-    if self.use_spectral_reg and self.training and self.spectral_reg is not None:
-      spectral_loss, spectral_metrics = self.spectral_reg(contact_map)
+    total_loss = (
+        loss_data
+        + self.config.lambda_low * spectral_metrics["low_freq_loss"]
+        + self.config.lambda_high * spectral_metrics["high_freq_loss"]
+        + self.config.lambda_sym * loss_sym
+    )
 
-    # 4. Retornar resultados
-    outputs: dict[str, torch.Tensor | dict[str, float]] = {
-        "contact_map": contact_map
+    loss_dict = {
+        "total": total_loss,
+        "data": loss_data,
+        "spectral_low": spectral_metrics["low_freq_loss"],
+        "spectral_high": spectral_metrics["high_freq_loss"],
+        "symmetry": loss_sym,
     }
 
-    if return_spectral_metrics:
-      outputs["spectral_metrics"] = spectral_metrics
+    return contact_map, loss_dict
 
-    if self.training:
-      outputs["spectral_loss"] = spectral_loss
-
-    return outputs
+  def _data_loss(self, pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+    return self.data_loss_fn(pred, target)
 
   def predict_with_uncertainty(
       self, sequence_embedding: torch.Tensor, n_samples: int = 10
@@ -113,8 +134,7 @@ class SpectralEnhancedContactPredictor(nn.Module):
     predictions = []
     for _ in range(n_samples):
       with torch.no_grad():
-        pred = self.forward(sequence_embedding)["contact_map"]
-        predictions.append(pred)
+        predictions.append(self.base(sequence_embedding))
 
     self.eval()
 

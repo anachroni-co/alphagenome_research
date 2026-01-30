@@ -18,6 +18,7 @@ from __future__ import annotations
 
 from alphagenome_research.model.spectral_predictor import (
     SpectralEnhancedContactPredictor,
+    SpectralRegularizationConfig,
 )
 
 # NOTE: Replace these placeholders with real model definitions in your project.
@@ -33,14 +34,16 @@ train_files = [
 ]
 
 # 2. Configurar modelo
+# spectral_config = SpectralRegularizationConfig(
+#     lambda_high=0.1,
+#     lambda_low=0.05,
+#     lambda_sym=0.01,
+#     low_freq_cutoff=0.15,
+#     high_freq_cutoff=0.6,
+# )
 # model = SpectralEnhancedContactPredictor(
 #     base_predictor=base_predictor,
-#     use_spectral_reg=True,
-#     spectral_kwargs={
-#         "lambda_high": 0.1,
-#         "lambda_low": 0.05,
-#         "lambda_sym": 0.01,
-#     },
+#     config=spectral_config,
 # )
 
 # 3. Entrenamiento comparativo

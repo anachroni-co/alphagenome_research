@@ -87,7 +87,7 @@ class SpectralContactRegularizer(nn.Module):
       contact_pred: torch.Tensor,
       contact_target: torch.Tensor | None = None,
       weight_mask: torch.Tensor | None = None,
-  ) -> tuple[torch.Tensor, dict[str, float]]:
+  ) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
     """
     Args:
         contact_pred: Tensor [batch, L, L] - Predicción del modelo
@@ -114,14 +114,25 @@ class SpectralContactRegularizer(nn.Module):
     masks = self._create_frequency_masks(length, contact_pred.device)
     low_mask, _, high_mask = masks
 
-    # 4. Pérdida de alta frecuencia (penalizar ruido)
-    high_freq_energy = torch.abs(pred_fft * high_mask.unsqueeze(0)) ** 2
+    # 4. Pérdida de alta frecuencia (penalizar ruido o diferenciar con target)
+    high_freq_loss = torch.tensor(0.0, device=contact_pred.device)
+    if contact_target is None:
+      high_freq_energy = torch.abs(pred_fft * high_mask.unsqueeze(0)) ** 2
+      if weight_mask is not None:
+        # Ponderar por importancia (ej: regiones con alta cobertura)
+        high_freq_energy = high_freq_energy * weight_mask
+      high_freq_loss = torch.mean(high_freq_energy)
+    else:
+      target_fft = torch.fft.fft2(contact_target.float())
+      target_fft = torch.fft.fftshift(target_fft)
 
-    if weight_mask is not None:
-      # Ponderar por importancia (ej: regiones con alta cobertura)
-      high_freq_energy = high_freq_energy * weight_mask
+      high_freq_pred = pred_fft * high_mask.unsqueeze(0)
+      high_freq_target = target_fft * high_mask.unsqueeze(0)
 
-    high_freq_loss = torch.mean(high_freq_energy)
+      high_freq_diff = torch.abs(high_freq_pred - high_freq_target) ** 2
+      if weight_mask is not None:
+        high_freq_diff = high_freq_diff * weight_mask
+      high_freq_loss = torch.mean(high_freq_diff)
 
     # 5. Pérdida de baja frecuencia (preservar estructura)
     low_freq_loss = torch.tensor(0.0, device=contact_pred.device)
@@ -148,12 +159,10 @@ class SpectralContactRegularizer(nn.Module):
 
     # 7. Métricas de diagnóstico
     metrics = {
-        "high_freq_energy": high_freq_loss.item(),
-        "low_freq_loss": low_freq_loss.item()
-        if contact_target is not None
-        else 0.0,
-        "symmetry_loss": sym_loss.item(),
-        "total_spectral_loss": total_loss.item(),
+        "high_freq_loss": high_freq_loss,
+        "low_freq_loss": low_freq_loss,
+        "symmetry_loss": sym_loss,
+        "total_spectral_loss": total_loss,
     }
 
     return total_loss, metrics
@@ -216,9 +225,9 @@ class MultiScaleSpectralRegularizer(nn.Module):
       self,
       contact_pred: torch.Tensor,
       contact_target: torch.Tensor | None = None,
-  ) -> tuple[torch.Tensor, dict[str, float]]:
+  ) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
     losses = []
-    all_metrics: dict[str, float] = {}
+    all_metrics: dict[str, torch.Tensor] = {}
 
     for i, scale in enumerate(self.scales):
       # Redimensionar a escala

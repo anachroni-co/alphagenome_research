@@ -98,9 +98,12 @@ class SpectralRegularizationConfig:
     lambda_high: float = 0.1
     lambda_sym: float = 0.01
     spectral_operator: Literal["fft"] = "fft"
+    adaptive: bool = True
+    adaptive_temperature: float = 1.0
+    epsilon: float = 1e-6
     low_freq_cutoff: float = 0.15
     high_freq_cutoff: float = 0.6
-    adaptive: bool = False
+    apply_from_layer: float = 0.6
 ```
 
 ```python

@@ -25,101 +25,101 @@ from alphagenome_research.model.spectral_regularizer import (
 
 
 class SpectralEnhancedContactPredictor(nn.Module):
-  """
-  Predictor de contactos con regularización espectral integrada.
-  Se puede usar como reemplazo directo en AlphaGenome.
-  """
-
-  def __init__(
-      self,
-      base_predictor: nn.Module,
-      use_spectral_reg: bool = True,
-      spectral_kwargs: dict[str, float] | None = None,
-  ) -> None:
-    super().__init__()
-
-    self.base_predictor = base_predictor
-    self.use_spectral_reg = use_spectral_reg
-
-    self.spectral_reg: SpectralContactRegularizer | None = None
-    if use_spectral_reg:
-      spectral_kwargs = spectral_kwargs or {}
-      self.spectral_reg = SpectralContactRegularizer(**spectral_kwargs)
-
-    # Capa de ajuste post-predicción (opcional)
-    self.post_process = nn.Sequential(
-        nn.Conv2d(1, 16, kernel_size=3, padding=1),
-        nn.ReLU(),
-        nn.Conv2d(16, 1, kernel_size=3, padding=1),
-        nn.Sigmoid(),  # Contactos son probabilidades
-    )
-
-  def forward(
-      self, sequence_embedding: torch.Tensor, return_spectral_metrics: bool = False
-  ) -> dict[str, torch.Tensor | dict[str, float]]:
     """
-    Args:
-        sequence_embedding: [batch, L, D] - Embedding de secuencia
-        return_spectral_metrics: Si True, retorna métricas de diagnóstico
-
-    Returns:
-        contact_map: [batch, L, L] - Mapa de contacto predicho
-        spectral_loss: Pérdida de regularización (si se usa)
-        metrics: Métricas de diagnóstico (si se piden)
+    Contact predictor with integrated spectral regularization.
+    Can be used as a direct replacement in AlphaGenome.
     """
-    # 1. Predicción base
-    base_pred = self.base_predictor(sequence_embedding)
 
-    # 2. Post-procesamiento
-    if self.post_process is not None:
-      # Añadir dimensión de canal
-      base_pred = base_pred.unsqueeze(1)  # [batch, 1, L, L]
-      contact_map = self.post_process(base_pred).squeeze(1)
-    else:
-      contact_map = base_pred
+    def __init__(
+        self,
+        base_predictor: nn.Module,
+        use_spectral_reg: bool = True,
+        spectral_kwargs: dict[str, float] | None = None,
+    ) -> None:
+        super().__init__()
 
-    # 3. Aplicar regularización espectral (solo en entrenamiento)
-    spectral_loss = torch.tensor(0.0, device=contact_map.device)
-    spectral_metrics: dict[str, float] = {}
+        self.base_predictor = base_predictor
+        self.use_spectral_reg = use_spectral_reg
 
-    if self.use_spectral_reg and self.training and self.spectral_reg is not None:
-      spectral_loss, spectral_metrics = self.spectral_reg(contact_map)
+        self.spectral_reg: SpectralContactRegularizer | None = None
+        if use_spectral_reg:
+            spectral_kwargs = spectral_kwargs or {}
+            self.spectral_reg = SpectralContactRegularizer(**spectral_kwargs)
 
-    # 4. Retornar resultados
-    outputs: dict[str, torch.Tensor | dict[str, float]] = {
-        "contact_map": contact_map
-    }
+        # Post-prediction adjustment layer (optional)
+        self.post_process = nn.Sequential(
+            nn.Conv2d(1, 16, kernel_size=3, padding=1),
+            nn.ReLU(),
+            nn.Conv2d(16, 1, kernel_size=3, padding=1),
+            nn.Sigmoid(),  # Contacts are treated as probabilities
+        )
 
-    if return_spectral_metrics:
-      outputs["spectral_metrics"] = spectral_metrics
+    def forward(
+        self, sequence_embedding: torch.Tensor, return_spectral_metrics: bool = False
+    ) -> dict[str, torch.Tensor | dict[str, float]]:
+        """
+        Args:
+            sequence_embedding: [batch, L, D] - Sequence embedding
+            return_spectral_metrics: If True, returns diagnostic metrics
 
-    if self.training:
-      outputs["spectral_loss"] = spectral_loss
+        Returns:
+            contact_map: [batch, L, L] - Predicted contact map
+            spectral_loss: Regularization loss (if used)
+            metrics: Diagnostic metrics (if requested)
+        """
+        # 1. Base prediction
+        base_pred = self.base_predictor(sequence_embedding)
 
-    return outputs
+        # 2. Post-processing
+        if self.post_process is not None:
+            # Add channel dimension
+            base_pred = base_pred.unsqueeze(1)  # [batch, 1, L, L]
+            contact_map = self.post_process(base_pred).squeeze(1)
+        else:
+            contact_map = base_pred
 
-  def predict_with_uncertainty(
-      self, sequence_embedding: torch.Tensor, n_samples: int = 10
-  ) -> tuple[torch.Tensor, torch.Tensor]:
-    """
-    Predicción con estimación de incertidumbre usando dropout.
+        # 3. Apply spectral regularization (training only)
+        spectral_loss = torch.tensor(0.0, device=contact_map.device)
+        spectral_metrics: dict[str, float] = {}
 
-    Returns:
-        mean_pred: Predicción promedio
-        uncertainty: Incertidumbre por pixel
-    """
-    self.train()  # Activar dropout
+        if self.use_spectral_reg and self.training and self.spectral_reg is not None:
+            spectral_loss, spectral_metrics = self.spectral_reg(contact_map)
 
-    predictions = []
-    for _ in range(n_samples):
-      with torch.no_grad():
-        pred = self.forward(sequence_embedding)["contact_map"]
-        predictions.append(pred)
+        # 4. Return results
+        outputs: dict[str, torch.Tensor | dict[str, float]] = {
+            "contact_map": contact_map
+        }
 
-    self.eval()
+        if return_spectral_metrics:
+            outputs["spectral_metrics"] = spectral_metrics
 
-    predictions_stack = torch.stack(predictions)  # [n_samples, batch, L, L]
-    mean_pred = predictions_stack.mean(dim=0)
-    uncertainty = predictions_stack.std(dim=0)
+        if self.training:
+            outputs["spectral_loss"] = spectral_loss
 
-    return mean_pred, uncertainty
+        return outputs
+
+    def predict_with_uncertainty(
+        self, sequence_embedding: torch.Tensor, n_samples: int = 10
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """
+        Prediction with uncertainty estimation using dropout.
+
+        Returns:
+            mean_pred: Average prediction
+            uncertainty: Per-pixel uncertainty
+        """
+        self.train()  # Activate dropout
+
+        predictions = []
+        for _ in range(n_samples):
+            with torch.no_grad():
+                pred = self.forward(sequence_embedding)["contact_map"]
+                predictions.append(pred)
+
+        self.eval()
+
+        predictions_stack = torch.stack(predictions)  # [n_samples, batch, L, L]
+        mean_pred = predictions_stack.mean(dim=0)
+        uncertainty = predictions_stack.std(dim=0)
+
+        return mean_pred, uncertainty

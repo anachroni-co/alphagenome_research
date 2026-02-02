@@ -42,8 +42,8 @@ class SpectralRegularizationConfig:
 
 class SpectralEnhancedContactPredictor(nn.Module):
   """
-  Predictor de contactos con regularización espectral integrada.
-  Se puede usar como reemplazo directo en AlphaGenome.
+  Contact predictor with integrated spectral regularization.
+  Can be used as a direct replacement in AlphaGenome.
   """
 
   def __init__(
@@ -79,15 +79,15 @@ class SpectralEnhancedContactPredictor(nn.Module):
   ) -> tuple[torch.Tensor, dict[str, torch.Tensor]] | torch.Tensor:
     """
     Args:
-        sequence_embedding: [batch, L, D] - Embedding de secuencia
-        targets: [batch, L, L] - Ground truth, opcional
-        training: Si True, calcula pérdidas de regularización
+        sequence_embedding: [batch, L, D] - Sequence embedding
+        targets: [batch, L, L] - Ground truth, optional
+        training: If True, calculates regularization losses
 
     Returns:
-        contact_map: [batch, L, L] - Mapa de contacto predicho
-        loss_dict: Pérdidas desglosadas (si training y targets provistos)
+        contact_map: [batch, L, L] - Predicted contact map
+        loss_dict: Broken down losses (if training and targets are provided)
     """
-    # 1. Predicción base
+    # 1. Base prediction
     contact_map = self.base(sequence_embedding)
 
     if not training or targets is None:
@@ -123,13 +123,13 @@ class SpectralEnhancedContactPredictor(nn.Module):
       self, sequence_embedding: torch.Tensor, n_samples: int = 10
   ) -> tuple[torch.Tensor, torch.Tensor]:
     """
-    Predicción con estimación de incertidumbre usando dropout.
+    Prediction with uncertainty estimation using dropout.
 
     Returns:
-        mean_pred: Predicción promedio
-        uncertainty: Incertidumbre por pixel
+        mean_pred: Average prediction
+        uncertainty: Per-pixel uncertainty
     """
-    self.train()  # Activar dropout
+    self.train()  # Enable dropout
 
     predictions = []
     for _ in range(n_samples):

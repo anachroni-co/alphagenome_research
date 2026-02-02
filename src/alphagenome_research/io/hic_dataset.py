@@ -23,9 +23,9 @@ from torch.utils.data import DataLoader, Dataset
 
 class HiCDataset(Dataset):
   """
-  Dataset para mapas de contacto Hi-C/Micro-C.
+  Dataset for Hi-C/Micro-C contact maps.
 
-  Carga datos de archivos .cool o .mcool (formato estándar).
+  Loads data from .cool or .mcool files (standard format).
   """
 
   def __init__(
@@ -47,15 +47,15 @@ class HiCDataset(Dataset):
     self.balance = balance
     self.transform = transform
 
-    # Cargar datos Cooler
+    # Load Cooler data
     self._load_cooler_data()
 
-    # Cache para acelerar
+    # Cache to speed up access
     self.cache_dir = cache_dir
     self.cache: dict[str, np.ndarray] = {}
 
   def _load_cooler_data(self) -> None:
-    """Carga datos del archivo cooler."""
+    """Loads data from the cooler file."""
     try:
       import cooler
     except ImportError as exc:
@@ -64,7 +64,7 @@ class HiCDataset(Dataset):
       ) from exc
 
     try:
-      # Intentar cargar como multi-cooler primero
+      # Try to load as multi-cooler first
       if self.cool_file.endswith(".mcool"):
         uri = f"{self.cool_file}::/resolutions/{self.resolution}"
       else:
@@ -72,12 +72,12 @@ class HiCDataset(Dataset):
 
       self.cool = cooler.Cooler(uri)
 
-      # Verificar que el cromosoma existe
+      # Verify that the chromosome exists
       if self.chromosome not in self.cool.chromnames:
         available = self.cool.chromnames
         raise ValueError(f"Chromosome {self.chromosome} not in {available}")
 
-      # Obtener información del cromosoma
+      # Get chromosome information
       chrom_length = self.cool.chromsizes[self.chromosome]
       self.num_bins = chrom_length // self.resolution
     except Exception as exc:
@@ -86,21 +86,21 @@ class HiCDataset(Dataset):
       ) from exc
 
   def _fetch_region(self, start_bin: int, end_bin: int) -> np.ndarray:
-    """Extrae una región del mapa de contactos."""
+    """Extracts a region from the contact map."""
     cache_key = f"{start_bin}_{end_bin}"
 
     if cache_key in self.cache:
       return self.cache[cache_key].copy()
 
-    # Extraer matriz de contactos
+    # Extract contact matrix
     matrix = self.cool.matrix(balance=self.balance).fetch(
         f"{self.chromosome}:{start_bin * self.resolution}-{end_bin * self.resolution}"
     )
 
-    # Convertir a float32 y reemplazar NaN
+    # Convert to float32 and replace NaN
     matrix = np.nan_to_num(matrix.astype(np.float32), nan=0.0)
 
-    # Log-transform (contactos son super-lineales)
+    # Log-transform (contacts are super-linear)
     matrix = np.log1p(matrix)
 
     if self.cache_dir:
@@ -109,27 +109,27 @@ class HiCDataset(Dataset):
     return matrix
 
   def __len__(self) -> int:
-    # Número de ventanas deslizantes
-    window_size = 256  # Tamaño fijo para nuestro modelo
-    stride = 128  # Solapamiento del 50%
+    # Number of sliding windows
+    window_size = 256  # Fixed size for our model
+    stride = 128  # 50% overlap
     return max(1, (self.num_bins - window_size) // stride + 1)
 
   def __getitem__(self, idx: int) -> tuple[torch.Tensor, dict[str, int | str]]:
-    # Calcular ventana
+    # Calculate window
     window_size = 256
     stride = 128
     start_bin = idx * stride
     end_bin = start_bin + window_size
 
-    # Asegurar que no nos salgamos
+    # Ensure boundaries are respected
     if end_bin > self.num_bins:
       end_bin = self.num_bins
       start_bin = max(0, end_bin - window_size)
 
-    # Extraer matriz
+    # Extract matrix
     contact_matrix = self._fetch_region(start_bin, end_bin)
 
-    # Asegurar tamaño correcto (rellenar si es necesario)
+    # Ensure correct size (pad if necessary)
     if contact_matrix.shape[0] < window_size:
       pad_size = window_size - contact_matrix.shape[0]
       contact_matrix = np.pad(
@@ -138,16 +138,16 @@ class HiCDataset(Dataset):
           mode="constant",
       )
 
-    # Aplicar transformaciones
+    # Apply transformations
     if self.transform:
       contact_matrix = self.transform(contact_matrix)
 
-    # Convertir a tensor
+    # Convert to tensor
     contact_tensor = torch.tensor(contact_matrix, dtype=torch.float32).unsqueeze(
         0
     )  # [1, L, L]
 
-    # Información de la región
+    # Region information
     region_info = {
         "chromosome": self.chromosome,
         "start_bp": start_bin * self.resolution,
@@ -162,8 +162,8 @@ class HiCDataset(Dataset):
 
 class HiCDataModule:
   """
-  Módulo completo para manejo de datos Hi-C.
-  Incluye carga, preprocesamiento, y división train/val/test.
+  Complete module for Hi-C data management.
+  Includes loading, preprocessing, and train/val/test splitting.
   """
 
   def __init__(
@@ -182,16 +182,16 @@ class HiCDataModule:
     self.batch_size = batch_size
     self.num_workers = num_workers
 
-    # Transformaciones
+    # Transformations
     self.train_transform = train_transform
     self.val_transform = val_transform
 
   def setup(self, stage: str | None = None) -> None:
-    """Prepara los datasets."""
-    # Dataset de entrenamiento (combinar múltiples archivos)
+    """Prepares the datasets."""
+    # Training dataset (combine multiple files)
     train_datasets = []
     for cool_file in self.train_files:
-      for chrom in ["chr1", "chr2", "chr3"]:  # Cromosomas para entrenamiento
+      for chrom in ["chr1", "chr2", "chr3"]:  # Chromosomes for training
         dataset = HiCDataset(
             cool_file=cool_file,
             chromosome=chrom,
@@ -201,11 +201,11 @@ class HiCDataModule:
 
     self.train_dataset = torch.utils.data.ConcatDataset(train_datasets)
 
-    # Dataset de validación
+    # Validation dataset
     if self.val_files:
       val_datasets = []
       for cool_file in self.val_files:
-        for chrom in ["chr4", "chr5"]:  # Cromosomas diferentes para val
+        for chrom in ["chr4", "chr5"]:  # Different chromosomes for validation
           dataset = HiCDataset(
               cool_file=cool_file,
               chromosome=chrom,
@@ -215,11 +215,11 @@ class HiCDataModule:
 
       self.val_dataset = torch.utils.data.ConcatDataset(val_datasets)
 
-    # Dataset de test
+    # Test dataset
     if self.test_files:
       test_datasets = []
       for cool_file in self.test_files:
-        for chrom in ["chr6", "chr7"]:  # Cromosomas para test
+        for chrom in ["chr6", "chr7"]:  # Chromosomes for testing
           dataset = HiCDataset(
               cool_file=cool_file,
               chromosome=chrom,

@@ -123,6 +123,12 @@ class DnaModelTest(parameterized.TestCase):
             ),
             'ontology_curie': ['UBERON:0000001'] * (self._num_tissues + 2),
         }),
+        chip_tf=pd.DataFrame({
+            'name': ['chip_1', 'chip_2'],
+            'strand': ['+', '-'],
+            'ontology_curie': 'UBERON:0000001',
+            'nonzero_mean': 1.0,
+        }),
     )
 
     def _apply_fn(params, state, dna_sequence, organism_index):
@@ -180,6 +186,11 @@ class DnaModelTest(parameterized.TestCase):
           'embeddings_1bp': jnp.zeros(
               (batch_size, sequence_length, 1536), dtype=jnp.bfloat16
           ),
+          'chip_tf': {
+              'predictions_128bp': jnp.zeros(
+                  (batch_size, sequence_length // 128, 2), dtype=jnp.bfloat16
+              )
+          },
       }
 
     self._mock_model = _apply_fn
@@ -467,6 +478,11 @@ class DnaModelTest(parameterized.TestCase):
             aggregation_type=variant_scorers.AggregationType.DIFF_MEAN,
             requested_output=dna_output.OutputType.ATAC,
             width=501,
+        ),
+        variant_scorers.CenterMaskScorer(
+            requested_output=dna_output.OutputType.CHIP_TF,
+            width=501,
+            aggregation_type=variant_scorers.AggregationType.DIFF_LOG2_SUM,
         ),
         variant_scorers.ContactMapScorer(),
     ]

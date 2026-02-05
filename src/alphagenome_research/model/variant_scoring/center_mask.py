@@ -14,7 +14,6 @@
 
 """Implementation of center mask variant scoring."""
 
-from collections.abc import Mapping
 import functools
 import math
 
@@ -72,10 +71,11 @@ def create_center_mask(
 
 
 @functools.partial(jax.jit, static_argnames=['aggregation_type'])
+@typing.jaxtyped
 def _apply_aggregation(
     ref: Float32[Array, 'S T'],
     alt: Float32[Array, 'S T'],
-    masks: Bool[Array, 'S'],
+    masks: Bool[Array, 'S 1'],
     aggregation_type: variant_scorers.AggregationType,
 ):
   match aggregation_type:
@@ -139,10 +139,10 @@ class CenterMaskVariantScorer(variant_scoring.VariantScorer):
   @typing.jaxtyped
   def score_variant(
       self,
-      ref: Mapping[dna_output.OutputType, Float32[Array, 'S T']],
-      alt: Mapping[dna_output.OutputType, Float32[Array, 'S T']],
+      ref: variant_scoring.ScoreVariantInput,
+      alt: variant_scoring.ScoreVariantInput,
       *,
-      masks: Bool[Array, 'S 1'],
+      masks: Bool[Array, '_ 1'],
       settings: variant_scorers.CenterMaskScorer,
       variant: genome.Variant | None = None,
       interval: genome.Interval | None = None,

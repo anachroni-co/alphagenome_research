@@ -14,8 +14,6 @@
 
 """Implementation of splice junction variant scoring."""
 
-from collections.abc import Mapping
-
 from alphagenome import typing
 from alphagenome.data import genome
 from alphagenome.data import junction_data
@@ -27,7 +25,7 @@ import anndata
 import einshape
 import jax
 import jax.numpy as jnp
-from jaxtyping import Array, Float, Float32, Int32, PyTree, Shaped  # pylint: disable=g-multiple-import, g-importing-member
+from jaxtyping import Float, Int32, Shaped  # pylint: disable=g-multiple-import, g-importing-member
 import numpy as np
 import pandas as pd
 import pyranges
@@ -222,14 +220,8 @@ class SpliceJunctionVariantScorer(variant_scoring.VariantScorer):
 
   def score_variant(
       self,
-      ref: Mapping[
-          dna_output.OutputType,
-          PyTree[Float32[Array, 'D D T'] | Int32[Array, 'S D']],
-      ],
-      alt: Mapping[
-          dna_output.OutputType,
-          PyTree[Float32[Array, 'D D T'] | Int32[Array, 'S D']],
-      ],
+      ref: variant_scoring.ScoreVariantInput,
+      alt: variant_scoring.ScoreVariantInput,
       *,
       masks: None,
       settings: variant_scorers.SpliceJunctionScorer,

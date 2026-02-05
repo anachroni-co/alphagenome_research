@@ -24,7 +24,11 @@ This repository provides the following research code:
     [AlphaGenome API](https://deepmind.google.com/science/alphagenome) with
     accompanying variant scorers.
 -   A dataset loader for reading AlphaGenome training data from TFRecords.
--   An example colab notebook for analysing our evaluation results.
+-   Colab notebooks for
+    [running](https://colab.research.google.com/github/google-deepmind/alphagenome_research/blob/main/colabs/quick_start.ipynb)
+    the model and
+    [analysing](https://colab.research.google.com/github/google-deepmind/alphagenome_research/blob/main/colabs/variant_eval_examples.ipynb)
+    evaluations.
 
 We strongly recommend using our
 [AlphaGenome API](https://deepmind.google.com/science/alphagenome) to interact
@@ -82,7 +86,7 @@ more intuitive set of functions for creating predictions, scoring variants,
 performing in silico mutagenesis (ISM) and more.
 
 It also provides the following factory functions to create a model instance
-using weights:
+using our pre-trained weights:
 
 ```python
 from alphagenome_research.model import dna_model
@@ -136,6 +140,10 @@ plot_components.plot(
 )
 plt.show()
 ```
+
+For further examples, please see our
+[quick-start](https://colab.research.google.com/github/google-deepmind/alphagenome_research/blob/main/colabs/quick_start.ipynb)
+notebook.
 
 ## Citing AlphaGenome
 

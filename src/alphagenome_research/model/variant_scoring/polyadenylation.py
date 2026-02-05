@@ -14,8 +14,6 @@
 
 """Implements a variant scorer for polyadenylation."""
 
-from collections.abc import Mapping
-
 from alphagenome import typing
 from alphagenome.data import genome
 from alphagenome.models import dna_output
@@ -191,8 +189,8 @@ class PolyadenylationVariantScorer(variant_scoring.VariantScorer):
 
   def score_variant(
       self,
-      ref: Mapping[dna_output.OutputType, Float32[Array, 'S T']],
-      alt: Mapping[dna_output.OutputType, Float32[Array, 'S T']],
+      ref: variant_scoring.ScoreVariantInput,
+      alt: variant_scoring.ScoreVariantInput,
       *,
       masks: PolyadenylationVariantMasks,
       settings: variant_scorers.PolyadenylationScorer,

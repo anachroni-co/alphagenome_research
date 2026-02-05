@@ -126,16 +126,17 @@ def extract_predictions(
             'predictions'
         )
       case dna_output.OutputType.SPLICE_JUNCTIONS:
-        prediction = {
-            'predictions': (
-                predictions.get('splice_sites_junction', {}).get('predictions')
-            ),
-            'splice_site_positions': (
-                predictions.get('splice_sites_junction', {}).get(
-                    'splice_site_positions'
-                )
-            ),
-        }
+        if (
+            splice_site_preds := predictions.get('splice_sites_junction')
+        ) is not None:
+          prediction = {
+              'predictions': splice_site_preds.get('predictions'),
+              'splice_site_positions': splice_site_preds.get(
+                  'splice_site_positions'
+              ),
+          }
+        else:
+          prediction = None
       case dna_output.OutputType.CONTACT_MAPS:
         prediction = predictions.get('contact_maps', {}).get('predictions')
       case dna_output.OutputType.PROCAP:

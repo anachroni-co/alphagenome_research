@@ -340,7 +340,7 @@ class GeneMaskVariantScorerTest(parameterized.TestCase):
     scores = variant_scorer.score_variant(
         {dna_output.OutputType.SPLICE_SITES: ref},
         {dna_output.OutputType.SPLICE_SITES: alt},
-        masks=masks,
+        masks=jax.device_put(masks),
         settings=settings,
         variant=variant,
         interval=interval,

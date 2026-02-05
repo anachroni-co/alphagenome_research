@@ -14,8 +14,6 @@
 
 """Implementation of contact map variant scorer."""
 
-from collections.abc import Mapping
-
 from alphagenome.data import genome
 from alphagenome.data import track_data
 from alphagenome.models import dna_output
@@ -25,7 +23,7 @@ from alphagenome_research.model.variant_scoring import variant_scoring
 import anndata
 import jax
 import jax.numpy as jnp
-from jaxtyping import Array, Float32  # pylint: disable=g-multiple-import, g-importing-member
+from jaxtyping import Array, Bool  # pylint: disable=g-multiple-import, g-importing-member
 import numpy as np
 
 
@@ -85,10 +83,10 @@ class ContactMapScorer(variant_scoring.VariantScorer):
 
   def score_variant(
       self,
-      ref: Mapping[dna_output.OutputType, Float32[Array, 'S S T']],
-      alt: Mapping[dna_output.OutputType, Float32[Array, 'S S T']],
+      ref: variant_scoring.ScoreVariantInput,
+      alt: variant_scoring.ScoreVariantInput,
       *,
-      masks: np.ndarray,
+      masks: Bool[Array, '_ 1'],
       settings: variant_scorers.ContactMapScorer,
       variant: genome.Variant | None = None,
       interval: genome.Interval | None = None,

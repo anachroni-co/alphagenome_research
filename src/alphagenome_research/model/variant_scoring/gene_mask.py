@@ -14,7 +14,6 @@
 
 """Implementation of gene mask variant scoring."""
 
-from collections.abc import Mapping
 import functools
 
 from alphagenome import typing
@@ -136,10 +135,10 @@ class GeneVariantScorer(
   @typing.jaxtyped
   def score_variant(
       self,
-      ref: Mapping[dna_output.OutputType, Float32[Array, 'S T']],
-      alt: Mapping[dna_output.OutputType, Float32[Array, 'S T']],
+      ref: variant_scoring.ScoreVariantInput,
+      alt: variant_scoring.ScoreVariantInput,
       *,
-      masks: Bool[Array | np.ndarray, 'S G'],
+      masks: Bool[Array, 'S G'],
       settings: _VariantScorerSettings,
       variant: genome.Variant | None = None,
       interval: genome.Interval | None = None,

@@ -25,7 +25,7 @@ from alphagenome.models import dna_output
 import anndata
 import jax
 import jax.numpy as jnp
-from jaxtyping import Array, Float32  # pylint: disable=g-multiple-import, g-importing-member
+from jaxtyping import Array, Float32, Int32, PyTree  # pylint: disable=g-multiple-import, g-importing-member
 import numpy as np
 import pandas as pd
 
@@ -36,6 +36,10 @@ VariantSettingsT = TypeVar('VariantSettingsT')
 
 ScoreVariantOutput = Mapping[str, jax.Array | np.ndarray]
 ScoreVariantResult = Mapping[str, np.ndarray]
+
+ScoreVariantInput = Mapping[
+    dna_output.OutputType, PyTree[Float32[Array, '...'] | Int32[Array, '...']]
+]
 
 
 @typing.jaxtyped
@@ -127,8 +131,8 @@ class VariantScorer(
   @abc.abstractmethod
   def score_variant(
       self,
-      ref: Mapping[dna_output.OutputType, Float32[Array, 'S T']],
-      alt: Mapping[dna_output.OutputType, Float32[Array, 'S T']],
+      ref: ScoreVariantInput,
+      alt: ScoreVariantInput,
       *,
       masks: VariantMaskT,
       settings: VariantSettingsT,

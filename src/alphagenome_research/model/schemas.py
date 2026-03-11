@@ -42,9 +42,9 @@ class DataBatch:
   rna_seq_strand: Int[ArrayLike, 'B 1 C_RNA_SEQ'] | None = None
   cage: Float[ArrayLike, 'B S C_CAGE'] | None = None
   cage_mask: Bool[ArrayLike, 'B #S C_CAGE'] | None = None
-  contact_maps: Float[ArrayLike, 'B S//2048 S//2048 C_CONTACT_MAPS'] | None = (
-      None
-  )
+  contact_maps: (
+      Float[ArrayLike, 'B S_DNA//2048 S_DNA//2048 C_CONTACT_MAPS'] | None
+  ) = None
   splice_junctions: Float[ArrayLike, 'B P P C_SPLICE_JUNCTIONS'] | None = None
   splice_site_positions: Int[ArrayLike, 'B 4 P'] | None = None
   splice_site_usage: Float[ArrayLike, 'B S C_SPLICE_SITE_USAGE'] | None = None

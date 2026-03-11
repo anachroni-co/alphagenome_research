@@ -136,6 +136,9 @@ def get_mock_batch(
 ) -> schemas.DataBatch:
   """Returns mock target data for testing."""
   return schemas.DataBatch(
+      dna_sequence=jnp.zeros(
+          (batch_size, sequence_length, 4), dtype=jnp.float32
+      ),
       organism_index=jnp.ones((batch_size,), dtype=jnp.int32) * organism_index,
       atac=jnp.zeros(
           (batch_size, sequence_length, max(_MOCK_ATAC_NUM_TRACKS)),

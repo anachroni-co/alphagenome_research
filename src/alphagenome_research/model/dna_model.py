@@ -449,7 +449,15 @@ class AlphaGenomeModel(dna_model.DnaModel):
         ] = gene_scorer
         self._variant_scorers[organism][
             variant_scorers_lib.BaseVariantScorer.GENE_MASK_SPLICING
-        ] = gene_scorer
+        ] = gene_mask.GeneVariantScorer(
+            gene_mask_extractor=gene_mask_extractor.GeneMaskExtractor(
+                gtf=gtf,
+                gene_query_type=(
+                    gene_mask_extractor.GeneQueryType.VARIANT_OVERLAPPING
+                ),
+                gene_mask_type=gene_mask_extractor.GeneMaskType.BODY,
+            ),
+        )
         self._variant_scorers[organism][
             variant_scorers_lib.BaseVariantScorer.SPLICE_JUNCTION
         ] = splice_junction.SpliceJunctionVariantScorer(gtf)

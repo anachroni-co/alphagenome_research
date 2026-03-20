@@ -774,7 +774,8 @@ class DnaModelTest(parameterized.TestCase):
         ),
     }
     chex.assert_trees_all_equal_shapes_and_dtypes(
-        dna_model.extract_predictions(predictions), expected_predictions
+        dna_model.extract_predictions(predictions, dna_output.OutputType),
+        expected_predictions,
     )
 
     junction_predictions = jax.eval_shape(

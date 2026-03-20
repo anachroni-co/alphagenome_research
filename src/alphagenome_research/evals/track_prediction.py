@@ -90,7 +90,10 @@ def load_model(
     (predictions, _), _ = forward.apply(
         params, state, None, dna_sequence, organism_index
     )
-    predictions = dna_model.extract_predictions(predictions)
+    requested_outputs = tuple(
+        dna_output.OutputType[bundle.name] for bundle in _EVAL_BUNDLES
+    )
+    predictions = dna_model.extract_predictions(predictions, requested_outputs)
     return predictions
 
   return params, state, predict

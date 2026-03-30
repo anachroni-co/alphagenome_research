@@ -117,8 +117,10 @@ class GeneMaskVariantScorerTest(parameterized.TestCase):
         gtf=_get_mock_gtf(),
         gene_mask_type=gene_mask_extractor_lib.GeneMaskType.BODY,
     )
+    pad_num_genes = 32
     gene_variant_scorer = gene_mask.GeneVariantScorer(
         gene_mask_extractor=gene_mask_extractor,
+        pad_num_genes=pad_num_genes,
     )
     interval = genome.Interval('chr1', 0, 256)
     variant = genome.Variant('chr1', 10, 'C', 'T')
@@ -135,7 +137,7 @@ class GeneMaskVariantScorerTest(parameterized.TestCase):
     self.assertLen(metadata, 2)
     self.assertSequenceEqual(list(metadata.gene_id), ['G1', 'G2'])
 
-    self.assertEqual(gene_masks.shape, (256, 2))
+    self.assertEqual(gene_masks.shape, (256, pad_num_genes))
     expected_g1_mask = np.zeros(256, dtype=bool)
     expected_g1_mask[101:200] = True
     expected_g2_mask = np.zeros(256, dtype=bool)
@@ -188,8 +190,10 @@ class GeneMaskVariantScorerTest(parameterized.TestCase):
         gtf=gtf,
         gene_mask_type=gene_mask_extractor_lib.GeneMaskType.BODY,
     )
+    pad_num_genes = 32
     gene_variant_scorer = gene_mask.GeneVariantScorer(
         gene_mask_extractor=gene_mask_extractor,
+        pad_num_genes=pad_num_genes,
     )
     interval = genome.Interval('chr1', 0, 11)
     variant = genome.Variant('chr1', 1, 'C', 'T')
@@ -200,7 +204,7 @@ class GeneMaskVariantScorerTest(parameterized.TestCase):
     gene_masks, _ = gene_variant_scorer.get_masks_and_metadata(
         interval, variant, settings=settings, track_metadata=track_metadata
     )
-    expected_g1_mask = np.zeros((11, 1), dtype=bool)
+    expected_g1_mask = np.zeros((11, pad_num_genes), dtype=bool)
     expected_g1_mask[4:7, 0] = True
     np.testing.assert_array_equal(gene_masks, expected_g1_mask)
 
@@ -219,9 +223,13 @@ class GeneMaskVariantScorerTest(parameterized.TestCase):
           variant=variant,
           interval=interval,
       )
+    padded_expected_scores = np.full(
+        (pad_num_genes, num_tracks), dtype=np.float32, fill_value=np.nan
+    )
+    padded_expected_scores[0, :] = expected_score
     np.testing.assert_almost_equal(
         scores['score'],
-        np.ones((1, num_tracks), dtype=jnp.float32) * expected_score,
+        padded_expected_scores,
         decimal=5,
     )
 

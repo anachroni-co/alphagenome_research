@@ -48,13 +48,13 @@ class CenterMaskVariantScorerTest(parameterized.TestCase):
           output_type=dna_output.OutputType.RNA_SEQ,
           variant=genome.Variant('chr1', 1, '', ''),
           expected_start=0,
-          expected_end=252,
+          expected_end=251,
       ),
       dict(
           width=501,
           output_type=dna_output.OutputType.RNA_SEQ,
           variant=genome.Variant('chr1', 2048, '', ''),
-          expected_start=1798,
+          expected_start=1797,
           expected_end=2048,
       ),
   ])

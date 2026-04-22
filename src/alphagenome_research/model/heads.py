@@ -1098,7 +1098,7 @@ class SpliceSitesJunctionHead(Head):
           'embeddings',
           (shape[0], math.prod(shape[1:])),
           dtype=x.dtype,
-          init=jnp.zeros,
+          init=hk.initializers.TruncatedNormal(0.1),
       ).reshape(*shape)
       params = _get_param_for_index(params, organism_index)
       # scale and offset have shape [B, 1, num_tissues, C].

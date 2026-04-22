@@ -72,6 +72,7 @@ class HeadConfig:
   type: HeadType
   name: str
   output_type: dna_output.OutputType
+  loss_weight: float
 
 
 @dataclasses.dataclass
@@ -141,6 +142,7 @@ def get_head_config(head_name: HeadName) -> HeadConfig:
           type=HeadType.GENOME_TRACKS,
           name=HeadName.ATAC.value,
           output_type=dna_output.OutputType.ATAC,
+          loss_weight=1.0,
           resolutions=[1, 128],
           apply_squashing=False,
           bundle=bundles.BundleName.ATAC,
@@ -150,6 +152,7 @@ def get_head_config(head_name: HeadName) -> HeadConfig:
           type=HeadType.GENOME_TRACKS,
           name=HeadName.DNASE.value,
           output_type=dna_output.OutputType.DNASE,
+          loss_weight=1.0,
           resolutions=[1, 128],
           apply_squashing=False,
           bundle=bundles.BundleName.DNASE,
@@ -159,6 +162,7 @@ def get_head_config(head_name: HeadName) -> HeadConfig:
           type=HeadType.GENOME_TRACKS,
           name=HeadName.PROCAP.value,
           output_type=dna_output.OutputType.PROCAP,
+          loss_weight=1.0,
           resolutions=[1, 128],
           apply_squashing=False,
           bundle=bundles.BundleName.PROCAP,
@@ -168,6 +172,7 @@ def get_head_config(head_name: HeadName) -> HeadConfig:
           type=HeadType.GENOME_TRACKS,
           name=HeadName.CAGE.value,
           output_type=dna_output.OutputType.CAGE,
+          loss_weight=1.0,
           resolutions=[1, 128],
           apply_squashing=False,
           bundle=bundles.BundleName.CAGE,
@@ -177,6 +182,7 @@ def get_head_config(head_name: HeadName) -> HeadConfig:
           type=HeadType.GENOME_TRACKS,
           name=HeadName.RNA_SEQ.value,
           output_type=dna_output.OutputType.RNA_SEQ,
+          loss_weight=1.0,
           resolutions=[1, 128],
           apply_squashing=True,
           bundle=bundles.BundleName.RNA_SEQ,
@@ -186,6 +192,7 @@ def get_head_config(head_name: HeadName) -> HeadConfig:
           type=HeadType.GENOME_TRACKS,
           name=HeadName.CHIP_TF.value,
           output_type=dna_output.OutputType.CHIP_TF,
+          loss_weight=1.0,
           resolutions=[128],
           apply_squashing=False,
           bundle=bundles.BundleName.CHIP_TF,
@@ -195,6 +202,7 @@ def get_head_config(head_name: HeadName) -> HeadConfig:
           type=HeadType.GENOME_TRACKS,
           name=HeadName.CHIP_HISTONE.value,
           output_type=dna_output.OutputType.CHIP_HISTONE,
+          loss_weight=1.0,
           resolutions=[128],
           apply_squashing=False,
           bundle=bundles.BundleName.CHIP_HISTONE,
@@ -204,24 +212,28 @@ def get_head_config(head_name: HeadName) -> HeadConfig:
           type=HeadType.CONTACT_MAPS,
           name=HeadName.CONTACT_MAPS.value,
           output_type=dna_output.OutputType.CONTACT_MAPS,
+          loss_weight=1.0,
       )
     case HeadName.SPLICE_SITES_CLASSIFICATION:
       return HeadConfig(
           type=HeadType.SPLICE_SITES_CLASSIFICATION,
           name=HeadName.SPLICE_SITES_CLASSIFICATION.value,
           output_type=dna_output.OutputType.SPLICE_SITES,
+          loss_weight=1.0,
       )
     case HeadName.SPLICE_SITES_USAGE:
       return HeadConfig(
           type=HeadType.SPLICE_SITES_USAGE,
           name=HeadName.SPLICE_SITES_USAGE.value,
           output_type=dna_output.OutputType.SPLICE_SITE_USAGE,
+          loss_weight=1.0,
       )
     case HeadName.SPLICE_SITES_JUNCTION:
       return HeadConfig(
           type=HeadType.SPLICE_SITES_JUNCTION,
           name=HeadName.SPLICE_SITES_JUNCTION.value,
           output_type=dna_output.OutputType.SPLICE_JUNCTIONS,
+          loss_weight=0.2,
       )
     case _:
       raise ValueError(f'Unknown head name: {head_name}')

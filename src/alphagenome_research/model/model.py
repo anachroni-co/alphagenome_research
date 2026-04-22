@@ -126,8 +126,12 @@ class AlphaGenome(hk.Module):
     self._freeze_trunk_embeddings = freeze_trunk_embeddings
     self._num_organisms = num_organisms
     self._heads: dict[heads_module.HeadName, heads_module.Head] = {}
+    self._head_configs: dict[heads_module.HeadName, heads_module.HeadConfig] = (
+        {}
+    )
     for head in heads_module.HeadName:
-      output_type = heads_module.get_head_config(head).output_type
+      head_config = heads_module.get_head_config(head)
+      output_type = head_config.output_type
       organisms_with_metadata = [
           organism
           for organism, metadata in output_metadata.items()
@@ -147,10 +151,11 @@ class AlphaGenome(hk.Module):
             ' missing tracks.'
         )
       self._heads[head] = heads_module.create_head(
-          heads_module.get_head_config(head),
+          head_config,
           self._output_metadata,
           num_organisms=num_organisms,
       )
+      self._head_configs[head] = head_config
 
   @hk.name_like('__call__')
   def predict_junctions(
@@ -278,5 +283,5 @@ class AlphaGenome(hk.Module):
       all_scalars.update(
           {f'{head_name.value}_{k}': v for k, v in scalars.items()}
       )
-      total_loss += scalars['loss']
+      total_loss += self._head_configs[head_name].loss_weight * scalars['loss']
     return total_loss, all_scalars, predictions

@@ -173,12 +173,18 @@ def cross_entropy_loss(
     eps: float = 1e-7,
 ) -> Float[Array, '']:
   """Cross entropy loss on counts."""
-  mask = jnp.broadcast_to(mask, y_true.shape)
+  y_true = y_true.astype(jnp.float32) + eps
+  y_pred = y_pred.astype(jnp.float32) + eps
+  mask = jnp.broadcast_to(mask, y_true.shape).astype(bool)
   chex.assert_equal_shape([y_true, y_pred, mask])
-  y_true = jnp.where(mask, y_true.astype(jnp.float32), 0)
-  p_true = y_true / jnp.maximum(y_true.sum(axis=axis, keepdims=True), eps)
 
-  log_normalizer = jnp.log((jnp.where(mask, y_pred, 0) + eps).sum(axis=axis))
-  log_likelihood = (p_true * jnp.log(y_pred + eps)).sum(axis=axis)
-  log_loss = log_normalizer - log_likelihood
-  return safe_masked_mean(log_loss, mask.any(axis=axis))
+  # For cases where all the elements are masked, set the mask to true and
+  # mask at the end to prevent NaNs propagating.
+  axis_mask = mask.sum(axis=axis, keepdims=True) > 0
+  mask = jnp.where(axis_mask, mask, True)
+
+  p_true = y_true / y_true.sum(axis=axis, where=mask, keepdims=True)
+  p_pred = y_pred / y_pred.sum(axis=axis, where=mask, keepdims=True)
+  log_loss = (-p_true * jnp.log(p_pred)).sum(axis=axis, where=mask)
+
+  return safe_masked_mean(log_loss, mask=jnp.squeeze(axis_mask, axis=axis))

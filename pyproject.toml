@@ -45,7 +45,7 @@ dependencies=[
     'kagglehub',
     'numpy',
     'optax',
-    'orbax',
+    'orbax-checkpoint',
     'pandas',
     'pyBigWig',
     'pyarrow',

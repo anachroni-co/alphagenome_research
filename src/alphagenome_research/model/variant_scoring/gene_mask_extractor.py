@@ -122,7 +122,7 @@ class _GeneAnnotation:
     """Returns the metadata as a DataFrame."""
     return pd.DataFrame({
         'gene_id': self.gene_id,
-        'Strand': self.strand,
+        'strand': self.strand,
         'gene_name': self.gene_name,
         'gene_type': self.gene_type,
         'interval_start': self.interval_start,
@@ -130,22 +130,6 @@ class _GeneAnnotation:
         'Start': self.start,
         'End': self.end,
     }).reset_index(drop=True)
-
-
-def _get_empty_metadata_table() -> pd.DataFrame:
-  """Returns an empty metadata table."""
-  return pd.DataFrame(
-      columns=[
-          'gene_id',
-          'Strand',
-          'gene_name',
-          'gene_type',
-          'interval_start',
-          'Chromosome',
-          'Start',
-          'End',
-      ]
-  )
 
 
 class _GeneAnnotationExtractor(abc.ABC):
@@ -516,7 +500,5 @@ class _ExonExtractor:
               exons.Chromosome, exons.Start, exons.End, exons.Strand
           )
       ]
-    except KeyError as e:
-      raise ValueError(
-          f'Transcript ID {transcript_id} not found in GTF.'
-      ) from e
+    except KeyError:
+      return []

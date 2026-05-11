@@ -44,8 +44,10 @@ dependencies=[
     'jaxtyping',
     'kagglehub',
     'numpy',
-    'orbax',
+    'optax',
+    'orbax-checkpoint',
     'pandas',
+    'pyBigWig',
     'pyarrow',
     'pyfaidx',
     'pyranges',
@@ -80,6 +82,7 @@ python = ['3.13', '3.12', '3.11']
 
 [tool.hatch.envs.check]
 dependencies = [
+  'nbconvert',
   'pyink>=24.3.0',
   'pylint>=2.6.0',
 ]
@@ -89,9 +92,11 @@ detached = true
 [tool.hatch.envs.check.scripts]
 format = 'pyink . --check --diff'
 lint = 'pylint .'
+notebook_lint = 'jupyter nbconvert colabs/*.ipynb --to html'
 all = [
   'format',
   'lint',
+  'notebook_lint',
 ]
 
 [tool.pyink]

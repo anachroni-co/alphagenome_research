@@ -47,7 +47,7 @@ def _create_mock_gtf() -> pd.DataFrame:
       'Start': [101, 101, 102, 103, 0, 0, 0, 80],
       'End': [200, 200, 200, 200, 108, 108, 40, 108],
       'Strand': ['+', '+', '+', '+', '-', '-', '-', '-'],
-      'transcript_id': [None, None, 'T2', 'T2', None, 'T4', 'T4', 'T4'],
+      'transcript_id': [None, 'T1', 'T2', 'T2', None, 'T4', 'T4', 'T4'],
       'gene_id': ['G1', 'G1', 'G1', 'G1', 'G2', 'G2', 'G2', 'G2'],
       'Feature': [
           'gene',
@@ -115,6 +115,10 @@ class DnaModelTest(parameterized.TestCase):
             'name': ['hic_1', 'hic_2'],
             'ontology_curie': ['UBERON:0000001', 'UBERON:0000002'],
             'strand': '.',
+        }),
+        splice_sites=pd.DataFrame({
+            'name': ['donor', 'acceptor', 'donor', 'acceptor', 'padding'],
+            'strand': ['+', '+', '-', '-', '.'],
         }),
         splice_junctions=pd.DataFrame({
             'name': (
@@ -485,13 +489,38 @@ class DnaModelTest(parameterized.TestCase):
             aggregation_type=variant_scorers.AggregationType.DIFF_LOG2_SUM,
         ),
         variant_scorers.ContactMapScorer(),
+        variant_scorers.GeneMaskLFCScorer(
+            requested_output=dna_output.OutputType.ATAC
+        ),
+        variant_scorers.SpliceJunctionScorer(),
     ]
     output = model.score_variant(interval, variant, variant_scorers=scorers)
     self.assertLen(output, len(scorers))
     for result, scorer in zip(output, scorers):
-      self.assertEqual(result.uns['scored_interval'], interval)
+      self.assertEqual(result.uns['interval'], interval)
       self.assertEqual(result.uns['variant'], variant)
       self.assertEqual(result.uns['variant_scorer'], scorer)
+
+    df = variant_scorers.tidy_scores(output)
+    self.assertCountEqual(
+        [
+            'variant_id',
+            'scored_interval',
+            'gene_id',
+            'gene_name',
+            'gene_type',
+            'gene_strand',
+            'junction_Start',
+            'junction_End',
+            'output_type',
+            'variant_scorer',
+            'track_name',
+            'track_strand',
+            'ontology_curie',
+            'raw_score',
+        ],
+        df.columns,
+    )
 
   def test_missing_gtf_raises_scorer_missing_error(self):
     mock_fasta_extractor = mock.create_autospec(fasta.FastaExtractor)
@@ -564,7 +593,7 @@ class DnaModelTest(parameterized.TestCase):
     output = model.score_interval(interval, interval_scorers=scorers)
     self.assertLen(output, len(scorers))
     for result, scorer in zip(output, scorers):
-      self.assertEqual(result.uns['scored_interval'], interval)
+      self.assertEqual(result.uns['interval'], interval)
       self.assertEqual(result.uns['interval_scorer'], scorer)
 
   @parameterized.parameters([
@@ -638,10 +667,26 @@ class DnaModelTest(parameterized.TestCase):
     for expected, scores in zip(expected_variants, scores, strict=True):
       self.assertEqual(expected, scores[0].uns['variant'])
 
-  @mock.patch.object(jax, 'eval_shape', return_value=MOCK_SHAPES, autospec=True)
-  def test_create(self, mock_eval_shape):
-    del mock_eval_shape
-    params, state = {}, {}
+  @parameterized.parameters(
+      dict(model_metadata=None),
+      dict(
+          model_metadata=metadata.AlphaGenomeOutputMetadata(
+              atac=metadata.load(dna_model.Organism.HOMO_SAPIENS).atac,
+              dnase=metadata.load(dna_model.Organism.HOMO_SAPIENS).dnase,
+          )
+      ),
+  )
+  def test_create(
+      self, model_metadata: metadata.AlphaGenomeOutputMetadata | None
+  ):
+    init_fn, _, _ = dna_model.create_model(
+        {o: metadata.load(o) for o in dna_model.Organism}
+    )
+    params, state = jax.jit(init_fn)(
+        jax.random.PRNGKey(0),
+        jax.ShapeDtypeStruct((1, 2048, 4), dtype=jnp.float32),
+        jax.ShapeDtypeStruct((1,), dtype=jnp.int32),
+    )
     checkpointer = ocp.StandardCheckpointer()
     checkpoint_dir = os.path.join(self.create_tempdir().full_path, 'ckpt')
     checkpointer.save(checkpoint_dir, (params, state))
@@ -661,6 +706,7 @@ class DnaModelTest(parameterized.TestCase):
     splice_starts.to_feather(splice_starts_path)
     splice_ends.to_feather(splice_ends_path)
     checkpointer.wait_until_finished()
+
     model = dna_model.create(
         checkpoint_dir,
         organism_settings={
@@ -670,6 +716,7 @@ class DnaModelTest(parameterized.TestCase):
                 pas_feather_path=polya_gtf_path,
                 splice_site_starts_feather_path=splice_starts_path,
                 splice_site_ends_feather_path=splice_ends_path,
+                metadata=model_metadata,
             )
         },
         device=jax.local_devices()[0],
@@ -684,6 +731,74 @@ class DnaModelTest(parameterized.TestCase):
             dna_model.Organism.MUS_MUSCULUS,
         ],
         organism_settings.keys(),
+    )
+
+  def test_create_model(self):
+    init, apply, apply_junctions = dna_model.create_model(
+        {dna_model.Organism.HOMO_SAPIENS: self._metadata}
+    )
+
+    dna_sequence_shape = jax.ShapeDtypeStruct((1, 2048, 4), dtype=jnp.float32)
+    organism_index_shape = jax.ShapeDtypeStruct((1,), dtype=jnp.int32)
+
+    params, state = jax.eval_shape(
+        init, jax.random.PRNGKey(0), dna_sequence_shape, organism_index_shape
+    )
+
+    predictions = jax.eval_shape(
+        apply, params, state, dna_sequence_shape, organism_index_shape
+    )
+    expected_predictions = {
+        dna_output.OutputType.ATAC: jax.ShapeDtypeStruct(
+            (1, 2048, 2), dtype=jnp.bfloat16
+        ),
+        dna_output.OutputType.DNASE: jax.ShapeDtypeStruct(
+            (1, 2048, 1), dtype=jnp.bfloat16
+        ),
+        dna_output.OutputType.CHIP_TF: jax.ShapeDtypeStruct(
+            (1, 16, 2), dtype=jnp.bfloat16
+        ),
+        dna_output.OutputType.SPLICE_SITES: jax.ShapeDtypeStruct(
+            (1, 2048, 5), dtype=jnp.bfloat16
+        ),
+        dna_output.OutputType.SPLICE_JUNCTIONS: {
+            'predictions': jax.ShapeDtypeStruct(
+                (1, 512, 512, 24), dtype=jnp.bfloat16
+            ),
+            'splice_site_positions': jax.ShapeDtypeStruct(
+                (1, 4, 512), dtype=jnp.int32
+            ),
+        },
+        dna_output.OutputType.CONTACT_MAPS: jax.ShapeDtypeStruct(
+            (1, 1, 1, 2), dtype=jnp.bfloat16
+        ),
+    }
+    chex.assert_trees_all_equal_shapes_and_dtypes(
+        dna_model.extract_predictions(predictions, dna_output.OutputType),
+        expected_predictions,
+    )
+
+    junction_predictions = jax.eval_shape(
+        apply_junctions,
+        params,
+        state,
+        predictions['embeddings_1bp'],
+        predictions['splice_sites_junction']['splice_site_positions'],
+        organism_index_shape,
+    )
+    expected_junction_predictions = {
+        'predictions': jax.ShapeDtypeStruct(
+            (1, 512, 512, 24), dtype=jnp.bfloat16
+        ),
+        'splice_junction_mask': jax.ShapeDtypeStruct(
+            (1, 512, 512, 24), dtype=jnp.bool
+        ),
+        'splice_site_positions': jax.ShapeDtypeStruct(
+            (1, 4, 512), dtype=jnp.int32
+        ),
+    }
+    chex.assert_trees_all_equal_shapes_and_dtypes(
+        junction_predictions, expected_junction_predictions
     )
 
   @parameterized.parameters(('all_folds',), (dna_model.ModelVersion.ALL_FOLDS,))

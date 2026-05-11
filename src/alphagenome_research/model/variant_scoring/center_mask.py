@@ -38,6 +38,10 @@ def create_center_mask(
     resolution: int,
 ) -> Bool[np.ndarray, 'S 1']:
   """Creates a mask centered on a variant for a given interval."""
+
+  if interval.chromosome != variant.chromosome:
+    return np.zeros([interval.width // resolution, 1], dtype=bool)
+
   if width is None:
     if interval.start <= variant.start < interval.end:
       mask = np.ones([interval.width // resolution, 1], dtype=bool)
@@ -46,8 +50,8 @@ def create_center_mask(
   else:
     target_resolution_width = math.ceil(width / resolution)
 
-    # Determine the position of the variant in the specified resolution.
-    base_resolution_center = variant.position - interval.start
+    # Determine the 0-based index of the variant in the specified resolution.
+    base_resolution_center = variant.start - interval.start
     target_resolution_center = base_resolution_center // resolution
 
     # Compute start and end indices of the variant-centered mask.

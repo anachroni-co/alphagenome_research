@@ -28,7 +28,11 @@ from alphagenome_research.model import splicing
 from alphagenome_research.model.metadata import metadata as metadata_lib
 import haiku as hk
 import jax
-from jaxtyping import Array, Float, Int, PyTree  # pylint: disable=g-importing-member, g-multiple-import
+from jaxtyping import Array, Float, Int, PyTree, Shaped  # pylint: disable=g-importing-member, g-multiple-import
+
+
+DEFAULT_NUM_SPLICE_SITES = 512
+DEFAULT_SPLICE_SITE_THRESHOLD = 0.1
 
 
 class SequenceEncoder(hk.Module):
@@ -94,9 +98,10 @@ class AlphaGenome(hk.Module):
           dna_model.Organism, metadata_lib.AlphaGenomeOutputMetadata
       ],
       *,
-      num_splice_sites: int = 512,
-      splice_site_threshold: float = 0.1,
+      num_splice_sites: int = DEFAULT_NUM_SPLICE_SITES,
+      splice_site_threshold: float = DEFAULT_SPLICE_SITE_THRESHOLD,
       freeze_trunk_embeddings: bool = False,
+      num_organisms: int = 2,
       name: str | None = None,
   ):
     """Initializes the AlphaGenome model.
@@ -108,16 +113,25 @@ class AlphaGenome(hk.Module):
       splice_site_threshold: The threshold to use for splice site prediction.
       freeze_trunk_embeddings: Whether to stop the gradient to the embeddings.
         This is useful for training only the heads in fine-tuning.
+      num_organisms: The number of organisms. This is used to initialize the
+        organism embedding layer. Default is 2, for human and mouse. Leave at 2
+        to load pre-trained weights.
       name: The name of the module.
     """
+
     super().__init__(name=name or 'alphagenome')
     self._output_metadata = output_metadata
     self._num_splice_sites = num_splice_sites
     self._splice_site_threshold = splice_site_threshold
     self._freeze_trunk_embeddings = freeze_trunk_embeddings
+    self._num_organisms = num_organisms
     self._heads: dict[heads_module.HeadName, heads_module.Head] = {}
+    self._head_configs: dict[heads_module.HeadName, heads_module.HeadConfig] = (
+        {}
+    )
     for head in heads_module.HeadName:
-      output_type = heads_module.get_head_config(head).output_type
+      head_config = heads_module.get_head_config(head)
+      output_type = head_config.output_type
       organisms_with_metadata = [
           organism
           for organism, metadata in output_metadata.items()
@@ -137,12 +151,11 @@ class AlphaGenome(hk.Module):
             ' missing tracks.'
         )
       self._heads[head] = heads_module.create_head(
-          heads_module.get_head_config(head), self._output_metadata
+          head_config,
+          self._output_metadata,
+          num_organisms=num_organisms,
       )
-
-  @property
-  def _num_organisms(self) -> int:
-    return len(self._output_metadata)
+      self._head_configs[head] = head_config
 
   @hk.name_like('__call__')
   def predict_junctions(
@@ -178,9 +191,7 @@ class AlphaGenome(hk.Module):
       self,
       dna_sequence: Float[Array, 'B S 4'],
       organism_index: Int[Array, 'B'],
-  ) -> tuple[
-      PyTree[Float[Array, 'B ...'] | None], embeddings_module.Embeddings
-  ]:
+  ) -> tuple[PyTree[Shaped[Array, 'B ...']], embeddings_module.Embeddings]:
     """Encodes a sequence of DNA and makes predictions for various heads.
 
     Args:
@@ -259,10 +270,10 @@ class AlphaGenome(hk.Module):
     return predictions, embeddings
 
   @typing.jaxtyped
-  def loss(self, batch: schemas.DataBatch) -> tuple[
-      Float[Array, ''],
-      PyTree[Float[Array, '']],
-      PyTree[Float[Array, 'B ...'] | None],
+  def loss(
+      self, batch: schemas.DataBatch
+  ) -> tuple[
+      Float[Array, ''], PyTree[Float[Array, '']], PyTree[Shaped[Array, 'B ...']]
   ]:
     """Returns the loss for the model."""
     predictions, _ = self(batch.dna_sequence, batch.get_organism_index())
@@ -272,5 +283,5 @@ class AlphaGenome(hk.Module):
       all_scalars.update(
           {f'{head_name.value}_{k}': v for k, v in scalars.items()}
       )
-      total_loss += scalars['loss']
+      total_loss += self._head_configs[head_name].loss_weight * scalars['loss']
     return total_loss, all_scalars, predictions

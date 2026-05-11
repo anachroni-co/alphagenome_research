@@ -24,52 +24,79 @@ class AlignAlternateTest(parameterized.TestCase):
 
   @parameterized.named_parameters(
       dict(
-          testcase_name='snp',
+          testcase_name='snv',
           variant=genome.Variant('chr1', 2, 'C', 'T'),
-          expected_aligned_alt=np.arange(10, dtype=np.float32).reshape(-1, 1),
+          expected=np.arange(10, dtype=np.float32),
+      ),
+      dict(
+          testcase_name='snv_negative_strand',
+          variant=genome.Variant('chr1', 5, 'A', 'T'),
+          expected=np.arange(10, dtype=np.float32),
+          strand='-',
       ),
       dict(
           testcase_name='insertion',
           variant=genome.Variant('chr1', 2, 'C', 'TGA'),
-          expected_aligned_alt=np.array(
-              [0, 3, 4, 5, 6, 7, 8, 9, 0, 0], dtype=np.float32
-          ).reshape(-1, 1),
+          expected=np.array([0, 3, 4, 5, 6, 7, 8, 9, 0, 0], dtype=np.float32),
+      ),
+      dict(
+          testcase_name='insertion_negative_strand',
+          variant=genome.Variant('chr1', 2, 'C', 'TGA'),
+          expected=np.array([0, 0, 0, 1, 2, 3, 4, 5, 8, 9], dtype=np.float32),
+          strand='-',
       ),
       dict(
           testcase_name='multi_insertion',
           variant=genome.Variant('chr1', 2, 'CC', 'CCTGA'),
-          expected_aligned_alt=np.array(
-              [0, 1, 5, 6, 7, 8, 9, 0, 0, 0], dtype=np.float32
-          ).reshape(-1, 1),
+          expected=np.array([0, 1, 5, 6, 7, 8, 9, 0, 0, 0], dtype=np.float32),
+      ),
+      dict(
+          testcase_name='multi_insertion_negative_strand',
+          variant=genome.Variant('chr1', 2, 'CC', 'CCTGA'),
+          expected=np.array([0, 0, 0, 0, 1, 2, 3, 7, 8, 9], dtype=np.float32),
+          strand='-',
       ),
       dict(
           testcase_name='multi_insertion_long_insertion',
-          variant=genome.Variant('chr1', 5, 'A', 'AAAAAAA'),
-          expected_aligned_alt=np.array(
-              [0, 1, 2, 3, 9, 0, 0, 0, 0, 0], dtype=np.float32
-          ).reshape(-1, 1),
+          variant=genome.Variant('chr1', 5, 'A', 'AAAAAA'),
+          expected=np.array([0, 1, 2, 3, 9, 0, 0, 0, 0, 0], dtype=np.float32),
+      ),
+      dict(
+          testcase_name='multi_insertion_long_insertion_negative_strand',
+          variant=genome.Variant('chr1', 5, 'A', 'AAAAAA'),
+          expected=np.array([0, 0, 0, 0, 0, 5, 6, 7, 8, 9], dtype=np.float32),
+          strand='-',
       ),
       dict(
           testcase_name='deletion',
           variant=genome.Variant('chr1', 2, 'CGA', 'C'),
-          expected_aligned_alt=np.array(
-              [0, 1, 0, 0, 2, 3, 4, 5, 6, 7], dtype=np.float32
-          ).reshape(-1, 1),
+          expected=np.array([0, 1, 0, 0, 2, 3, 4, 5, 6, 7], dtype=np.float32),
+      ),
+      dict(
+          testcase_name='deletion_negative_strand',
+          variant=genome.Variant('chr1', 2, 'CGA', 'C'),
+          expected=np.array([2, 3, 4, 5, 6, 7, 0, 0, 8, 9], dtype=np.float32),
+          strand='-',
       ),
       dict(
           testcase_name='multi_deletion',
           variant=genome.Variant('chr1', 2, 'CCCGA', 'CCC'),
-          expected_aligned_alt=np.array(
-              [0, 1, 2, 3, 0, 0, 4, 5, 6, 7], dtype=np.float32
-          ).reshape(-1, 1),
+          expected=np.array([0, 1, 2, 3, 0, 0, 4, 5, 6, 7], dtype=np.float32),
+      ),
+      dict(
+          testcase_name='multi_deletion_negative_strand',
+          variant=genome.Variant('chr1', 2, 'CCCGA', 'CCC'),
+          expected=np.array([2, 3, 4, 5, 0, 0, 6, 7, 8, 9], dtype=np.float32),
+          strand='-',
       ),
   )
-  def test_align_alt(self, variant, expected_aligned_alt):
-    interval = genome.Interval('chr1', 0, 10)
+  def test_align_alternate(self, variant, expected, strand='.'):
+    interval = genome.Interval('chr1', 0, 10, strand)
     alt = np.arange(10, dtype=np.float32).reshape(-1, 1)
-    aligned_alt = variant_scoring.align_alternate(alt, variant, interval)
+    indel_mask = variant_scoring.IndelMask.from_variant(variant, interval)
+    aligned_alt = variant_scoring.align_alternate(alt, indel_mask)
     chex.assert_shape(aligned_alt, (10, 1))
-    np.testing.assert_array_equal(aligned_alt, expected_aligned_alt)
+    np.testing.assert_array_equal(aligned_alt, expected.reshape(-1, 1))
 
 
 if __name__ == '__main__':

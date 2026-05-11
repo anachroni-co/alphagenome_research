@@ -39,6 +39,7 @@ _PAS_MASK_WIDTH = 400
 class PolyadenylationVariantMasks:
   pas_mask: Bool[Array | np.ndarray, 'S G P']
   gene_mask: Bool[Array | np.ndarray, 'G']
+  indel_mask: variant_scoring.IndelMask
 
 
 @jax.jit
@@ -134,7 +135,7 @@ class PolyadenylationVariantScorer(variant_scoring.VariantScorer):
       if gene_id not in self._pas_per_gene:
         continue
       gene_pas = self._pas_per_gene[gene_id]
-      gene_pas = gene_pas[gene_pas['pas_strand'] == gene_row['Strand']]
+      gene_pas = gene_pas[gene_pas['pas_strand'] == gene_row['strand']]
       if (
           gene_pas.shape[0] == 0
           # Check at least 80% of a gene's PAS sites fall within the interval.
@@ -182,7 +183,11 @@ class PolyadenylationVariantScorer(variant_scoring.VariantScorer):
 
     return (
         PolyadenylationVariantMasks(
-            pas_mask=pas_mask, gene_mask=gene_padding_mask
+            pas_mask=pas_mask,
+            gene_mask=gene_padding_mask,
+            indel_mask=variant_scoring.IndelMask.from_variant(
+                variant, interval
+            ),
         ),
         pd.DataFrame(gene_metadata_rows),
     )
@@ -198,10 +203,11 @@ class PolyadenylationVariantScorer(variant_scoring.VariantScorer):
       interval: genome.Interval | None = None,
   ) -> variant_scoring.ScoreVariantOutput:
     """See base class."""
+    del variant, interval  # Unused.
     ref = ref[settings.requested_output]
     alt = alt[settings.requested_output]
 
-    alt = variant_scoring.align_alternate(alt, variant, interval)
+    alt = variant_scoring.align_alternate(alt, masks.indel_mask)
     return {
         'scores': _aggregate_maximum_ratio_coverage_fc(
             ref, alt, jnp.asarray(masks.pas_mask)

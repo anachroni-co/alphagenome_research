@@ -23,6 +23,11 @@ import pyfaidx
 _REVERSE_COMPLEMENT_TRANSLATION = str.maketrans('ATCGN', 'TAGCN')
 
 
+def reverse_complement(sequence: str) -> str:
+  """Returns the reverse complement of a DNA sequence string."""
+  return sequence.translate(_REVERSE_COMPLEMENT_TRANSLATION)[::-1]
+
+
 class FastaExtractor:
   """FASTA file extractor."""
 
@@ -65,6 +70,21 @@ class FastaExtractor:
       sequence = start_padding + sequence + end_padding
 
     if interval.negative_strand:
-      return sequence.translate(_REVERSE_COMPLEMENT_TRANSLATION)[::-1]
+      return reverse_complement(sequence)
     else:
       return sequence
+
+  @property
+  def sequence_names(self) -> list[str]:
+    """Returns the list of all sequence (chromosome) names in the FASTA."""
+    return list(self._faidx.index.keys())
+
+  def get_length_for_sequence_name(self, name: str) -> int:
+    """Returns the length of the named sequence."""
+    if name not in self._faidx.index:
+      raise ValueError(f'Chromosome "{name}" not found.')
+    return self._faidx.index[name].rlen
+
+  def __contains__(self, name: str) -> bool:
+    """Returns True if the FASTA contains a sequence with the given name."""
+    return name in self._faidx.index

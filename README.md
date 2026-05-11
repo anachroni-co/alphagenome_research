@@ -158,6 +158,7 @@ If you use AlphaGenome in your research, please cite using:
   journal={Nature},
   volume={649},
   number={8099},
+  pages={1206--1218},
   year={2026},
   doi={10.1038/s41586-025-10014-0},
   publisher={Nature Publishing Group UK London}
@@ -181,8 +182,10 @@ AlphaGenome's model release uses the following libraries and packages:
 *   [jaxtyping](https://github.com/patrick-kidger/jaxtyping)
 *   [kagglehub](https://github.com/Kaggle/kagglehub)
 *   [NumPy](https://numpy.org/)
+*   [Optax](https://github.com/google-deepmind/optax)
 *   [Orbax](https://github.com/google/orbax)
 *   [pandas](https://pandas.pydata.org/)
+*   [pyBigWig](https://github.com/deeptools/pyBigWig)
 *   [pyarrow](https://arrow.apache.org/)
 *   [pyfaidx](https://github.com/mdshw5/pyfaidx)
 *   [PyRanges](https://github.com/pyranges/pyranges)

@@ -24,6 +24,7 @@ from alphagenome.models import variant_scorers
 from alphagenome_research.model.variant_scoring import gene_mask_extractor as gene_mask_extractor_lib
 from alphagenome_research.model.variant_scoring import variant_scoring
 import anndata
+import chex
 import jax
 import jax.numpy as jnp
 from jaxtyping import Array, Bool, Float32  # pylint: disable=g-multiple-import, g-importing-member
@@ -49,16 +50,16 @@ def _score_gene_variant(
     case variant_scorers.BaseVariantScorer.GENE_MASK_LFC:
       # Scores are the log fold change between the mean prediction of REF and
       # ALT within each gene mask.
-      gene_mask_sum = gene_mask.sum(axis=0)[:, jnp.newaxis]
-      ref_mean = jnp.einsum('lt,lg->gt', ref, gene_mask) / gene_mask_sum
-      alt_mean = jnp.einsum('lt,lg->gt', alt, gene_mask) / gene_mask_sum
+      gene_length = gene_mask.sum(axis=0)[:, jnp.newaxis]
+      ref_mean = jnp.einsum('lt,lg->gt', ref, gene_mask) / gene_length
+      alt_mean = jnp.einsum('lt,lg->gt', alt, gene_mask) / gene_length
       return jnp.log(alt_mean + 1e-3) - jnp.log(ref_mean + 1e-3)
     case variant_scorers.BaseVariantScorer.GENE_MASK_ACTIVE:
       # Scores are the maximum of the mean prediction for REF and ALT within
       # each gene mask.
-      gene_mask_sum = gene_mask.sum(axis=0)[:, jnp.newaxis]
-      ref_score = jnp.einsum('lt,lg->gt', ref, gene_mask) / gene_mask_sum
-      alt_score = jnp.einsum('lt,lg->gt', alt, gene_mask) / gene_mask_sum
+      gene_length = gene_mask.sum(axis=0)[:, jnp.newaxis]
+      ref_score = jnp.einsum('lt,lg->gt', ref, gene_mask) / gene_length
+      alt_score = jnp.einsum('lt,lg->gt', alt, gene_mask) / gene_length
       return jnp.maximum(alt_score, ref_score)
     case variant_scorers.BaseVariantScorer.GENE_MASK_SPLICING:
       # Scores are the maximum of the absolute difference between REF and ALT
@@ -75,9 +76,16 @@ def _score_gene_variant(
       )
 
 
+@typing.jaxtyped
+@chex.dataclass(frozen=True)
+class GeneVariantMasks:
+  gene_mask: Bool[Array | np.ndarray, 'S G']
+  indel_mask: variant_scoring.IndelMask
+
+
 class GeneVariantScorer(
     variant_scoring.VariantScorer[
-        Bool[np.ndarray | Array, 'S G'],
+        GeneVariantMasks,
         pd.DataFrame,
         _VariantScorerSettings,
     ]
@@ -87,13 +95,16 @@ class GeneVariantScorer(
   def __init__(
       self,
       gene_mask_extractor: gene_mask_extractor_lib.GeneMaskExtractor,
+      pad_num_genes: int = 256,
   ):
     """Initializes the GeneVariantScorer.
 
     Args:
       gene_mask_extractor: Gene mask extractor to use.
+      pad_num_genes: Number of genes to pad the gene mask to.
     """
     self._gene_mask_extractor = gene_mask_extractor
+    self._pad_num_genes = pad_num_genes
 
   def get_masks_and_metadata(
       self,
@@ -102,7 +113,7 @@ class GeneVariantScorer(
       *,
       settings: _VariantScorerSettings,
       track_metadata: dna_output.OutputMetadata,
-  ) -> tuple[Bool[np.ndarray | Array, 'S G'], pd.DataFrame]:
+  ) -> tuple[GeneVariantMasks, pd.DataFrame]:
     """Get gene masks and metadata for the given interval and variant.
 
     Note that the gene mask returned for the REF allele is just the normal
@@ -130,7 +141,23 @@ class GeneVariantScorer(
           'Only resolution = 1 is supported for gene variant scoring.'
       )
     gene_mask, metadata = self._gene_mask_extractor.extract(interval, variant)
-    return (gene_mask, metadata)
+    num_genes = gene_mask.shape[1]
+    if num_genes > self._pad_num_genes:
+      raise ValueError(
+          f'Number of genes for {interval=}, {variant=} is larger than '
+          f'pad_num_genes ({num_genes} > {self._pad_num_genes}).'
+      )
+    # Pad gene_mask to fixed width to prevent jit recompilation.
+    padded_gene_mask = np.zeros(
+        (interval.width, self._pad_num_genes), dtype=bool
+    )
+    padded_gene_mask[:, :num_genes] = gene_mask
+
+    gene_masks = GeneVariantMasks(
+        gene_mask=padded_gene_mask,
+        indel_mask=variant_scoring.IndelMask.from_variant(variant, interval),
+    )
+    return (gene_masks, metadata)
 
   @typing.jaxtyped
   def score_variant(
@@ -138,17 +165,16 @@ class GeneVariantScorer(
       ref: variant_scoring.ScoreVariantInput,
       alt: variant_scoring.ScoreVariantInput,
       *,
-      masks: Bool[Array, 'S G'],
+      masks: GeneVariantMasks,
       settings: _VariantScorerSettings,
       variant: genome.Variant | None = None,
       interval: genome.Interval | None = None,
   ) -> variant_scoring.ScoreVariantOutput:
+    del variant, interval  # Unused.
     alt = alt[settings.requested_output]
     ref = ref[settings.requested_output]
-    gene_mask = masks
-    alt = variant_scoring.align_alternate(alt, variant, interval)
-
-    output = _score_gene_variant(ref, alt, gene_mask, settings=settings)
+    alt = variant_scoring.align_alternate(alt, masks.indel_mask)
+    output = _score_gene_variant(ref, alt, masks.gene_mask, settings=settings)
     return {'score': output}
 
   def finalize_variant(
@@ -163,11 +189,11 @@ class GeneVariantScorer(
     output_metadata = track_metadata.get(settings.requested_output)
     assert isinstance(output_metadata, track_data.TrackMetadata)
     strand_mask = (
-        np.asarray(mask_metadata['Strand'].values)[:, None]
+        np.asarray(mask_metadata['strand'].values)[:, None]
         == output_metadata['strand'].values[None]
     ) | (output_metadata['strand'].values[None] == '.')
-
-    scores = np.where(strand_mask, scores['score'], np.nan)
+    num_genes = len(mask_metadata)
+    scores = np.where(strand_mask, scores['score'][:num_genes], np.nan)
     return variant_scoring.create_anndata(
         scores,
         obs=mask_metadata,

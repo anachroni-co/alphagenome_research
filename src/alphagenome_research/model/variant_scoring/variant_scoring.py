@@ -16,16 +16,16 @@
 
 import abc
 from collections.abc import Mapping
-import functools
-from typing import Generic, TypeVar
+from typing import Generic, Self, TypeVar
 
 from alphagenome import typing
 from alphagenome.data import genome
 from alphagenome.models import dna_output
 import anndata
+import chex
 import jax
 import jax.numpy as jnp
-from jaxtyping import Array, Float32, Int32, PyTree  # pylint: disable=g-multiple-import, g-importing-member
+from jaxtyping import Array, ArrayLike, Bool, Float32, Int32, PyTree  # pylint: disable=g-multiple-import, g-importing-member
 import numpy as np
 import pandas as pd
 
@@ -177,10 +177,136 @@ class VariantScorer(
 
 
 @typing.jaxtyped
+@chex.dataclass(frozen=True)
+class IndelMask:
+  """Masks for aligning ALT with REF predictions in the presence of indels.
+
+  This is used both in variant scoring and variant predictions: the former not
+  having a batch dimension and the latter having one.
+  """
+
+  variant_is_indel: Bool[ArrayLike, '*B 1']
+  variant_alt_mask: Bool[ArrayLike, '*B S']
+  variant_deletion_reindex_mask: Int32[ArrayLike, '*B S']
+  variant_deletion_zeros_mask: Bool[ArrayLike, '*B S']
+  variant_insertion_crop_mask: Bool[ArrayLike, '*B S']
+  variant_insertion_reindex_mask: Int32[ArrayLike, '*B S']
+
+  @classmethod
+  def from_variant(
+      cls,
+      variant: genome.Variant,
+      interval: genome.Interval,
+  ) -> Self:
+    """Returns the indel alignment masks for the given variant and interval.
+
+    Args:
+      variant: A genome.Variant.
+      interval: A genome.Interval.
+
+    Deletions:
+      - We insert zeroes in the ALT at the rightmost positions of the variant,
+      to align with the positions that were deleted from the REF. To do this in
+      jit, we set the final N predictions to zeros and reindex the ALT to move
+      them to the rightmost positions in the ALT.
+
+    Insertions:
+      - We set the rightmost variant positions in the ALT to the maximum of
+      those positions, then collapse into a single prediction to align with the
+      rightmost prediction in the REF. To do this in jit, we reindex all but 1
+      of the rightmost predictions to the end, to be filtered later.
+
+    We assume that insertions/deletions always occur at the end of the variant;
+    as a result, this algorithm only applies to left-aligned variants. If
+    variants are unnormalized or multi-change indels, alignment is not reliable.
+    """
+
+    # Extract variant masks. We need several of those so that `score_variant`
+    # can be written in a jittable way and can handle indels.
+    insertion_length = len(variant.alternate_bases) - len(
+        variant.reference_bases
+    )
+    deletion_length = -insertion_length
+    variant_start_ = variant.start - interval.start
+    # We only realign the insertion/deletion portion of the variant, which we
+    # assume is left-aligned such that the indel portion is at the end.
+    variant_start_ += (
+        min(len(variant.reference_bases), len(variant.alternate_bases)) - 1
+    )
+
+    # Indicator mask for the alternate insertion bases to maximize over.
+    variant_alt_mask = np.zeros(interval.width, dtype=bool)
+    if insertion_length > 0:
+      variant_alt_mask[
+          variant_start_ : variant_start_ + insertion_length + 1
+      ] = True
+
+    variant_is_indel = np.asarray([insertion_length != 0])
+
+    # Insertion masks.
+    # (1) Create an index mask that moves the ALT scores corresponding to
+    # insertions to the end of the ALT vector.
+    # (2) Create a mask for ignoring those scores that got moved to the end.
+    reindex_mask = np.arange(variant_alt_mask.shape[0], dtype=np.int32)
+    if insertion_length > 0:
+      reindex_mask = np.hstack([
+          reindex_mask[: variant_start_ + 1],
+          reindex_mask[variant_start_ + insertion_length + 1 :],
+          reindex_mask[
+              variant_start_ + 1 : variant_start_ + insertion_length + 1
+          ],
+      ])
+    crop_mask = np.zeros_like(variant_alt_mask)
+    if insertion_length > 0:
+      crop_mask[-insertion_length:] = True
+
+    # Deletion masks.
+    # Create masks for (1) inserting zeros at the end of the ALT vector and
+    # (2) for bringing those zeros to the deletion locations.
+    # This aligns the REF and ALT vectors.
+    zeros_mask = np.zeros_like(variant_alt_mask)
+    if deletion_length > 0:
+      zeros_mask[-deletion_length:] = True
+    deletion_reindex_mask = np.arange(variant_alt_mask.shape[0], dtype=np.int32)
+    if deletion_length > 0:
+      deletion_reindex_mask = np.hstack([
+          deletion_reindex_mask[: variant_start_ + 1],
+          deletion_reindex_mask[-deletion_length:],
+          deletion_reindex_mask[variant_start_ + 1 : -deletion_length],
+      ])
+    indel_mask = cls(
+        variant_is_indel=variant_is_indel,
+        variant_alt_mask=variant_alt_mask,
+        variant_insertion_reindex_mask=reindex_mask,
+        variant_insertion_crop_mask=crop_mask,
+        variant_deletion_zeros_mask=zeros_mask,
+        variant_deletion_reindex_mask=deletion_reindex_mask,
+    )
+    if interval.negative_strand:
+      return indel_mask.reverse_complement()
+    return indel_mask
+
+  def reverse_complement(self) -> Self:
+    """Reverse complements the IndelMask."""
+    interval_width = self.variant_alt_mask.shape[-1]
+    return IndelMask(
+        variant_is_indel=self.variant_is_indel,
+        variant_alt_mask=self.variant_alt_mask[..., ::-1],
+        variant_insertion_reindex_mask=(
+            interval_width - 1 - self.variant_insertion_reindex_mask[..., ::-1]
+        ),
+        variant_insertion_crop_mask=self.variant_insertion_crop_mask[..., ::-1],
+        variant_deletion_zeros_mask=self.variant_deletion_zeros_mask[..., ::-1],
+        variant_deletion_reindex_mask=(
+            interval_width - 1 - self.variant_deletion_reindex_mask[..., ::-1]
+        ),
+    )
+
+
+@jax.jit
 def align_alternate(
-    alt: Float32[Array | np.ndarray, 'S T'],
-    variant: genome.Variant,
-    interval: genome.Interval,
+    alt: Float32[Array, 'S T'],
+    masks: IndelMask,
 ) -> Float32[Array, 'S T']:
   """Aligns ALT predictions to match the REF allele's sequence length.
 
@@ -196,64 +322,36 @@ def align_alternate(
 
   Args:
     alt: The ALT allele predictions, shape [sequence_length, num_tracks].
-    variant: The variant containing the indel information.
-    interval: The genomic interval.
+    masks: Dataclass containing indel alignment masks for aligning ALT to REF
+      predictions.
 
   Returns:
     The aligned ALT predictions, shape [sequence_length, num_tracks].
   """
 
-  insertion_length = len(variant.alternate_bases) - len(variant.reference_bases)
-  deletion_length = -insertion_length
-  variant_start_in_vector = variant.start - interval.start
-  # We assume that variants are left-aligned, and that insertions/deletions
-  # for multi-change variants occur at the end of the variant.
-  # We only need to align that insertion/deletion portion.
-  variant_start_in_vector += (
-      min(len(variant.reference_bases), len(variant.alternate_bases)) - 1
-  )
-  original_length = alt.shape[0]
-
   # Summarize potential insertions by computing the maximum score across
   # alternate bases.
+  alt_variant_max = jnp.max(
+      alt,
+      initial=-jnp.inf,
+      where=masks.variant_alt_mask[..., None],
+      axis=0,
+      keepdims=True,
+  )
+  alt = jnp.where(masks.variant_alt_mask[..., None], alt_variant_max, alt)
+  # We cannot alter the ALT shape for jit purposes, so we move unwanted
+  # scores to the end of the vector. We will mask out these positions at
+  # the end.
+  alt = alt[masks.variant_insertion_reindex_mask]
 
-  @functools.partial(jax.jit, static_argnames=['insertion_length'])
-  def _apply(alt, insertion_length: int):
-    if insertion_length > 0:
-      pool_alt_past_ref = jnp.max(
-          alt[
-              variant_start_in_vector : variant_start_in_vector
-              + insertion_length
-              + 1
-          ],
-          axis=0,
-          keepdims=True,
-      )
-      alt = jnp.concatenate(
-          [
-              alt[:variant_start_in_vector],
-              pool_alt_past_ref,
-              alt[(variant_start_in_vector + insertion_length + 1) :],
-              jnp.zeros((insertion_length, alt.shape[1])),
-          ],
-          axis=0,
-      )
-      # Truncate to the original sequence length in case the alt insertion
-      # spills over the original sequence length. This happens only for
-      # insertions longer than half the interval.
-      alt = alt[:original_length]
-    elif deletion_length > 0:
-      # Handle potential deletions by inserting zero signal at deletion
-      # locations.
-      alt = jnp.concatenate(
-          [
-              alt[: (variant_start_in_vector + 1)],
-              jnp.zeros((deletion_length, alt.shape[1])),
-              alt[(variant_start_in_vector + 1) :],
-          ],
-          axis=0,
-      )
-      alt = alt[:original_length]
-    return alt
-
-  return _apply(alt, insertion_length)
+  # Handle potential deletions.
+  # We start by inserting zeros to the end of the ALT vector. The number
+  # of zeros equals the deletion length, i.e. len(reference_bases) - 1.
+  alt = jnp.where(masks.variant_deletion_zeros_mask[..., None], 0.0, alt)
+  # Reindex ALT to bring the zeros to their correct place.
+  alt = alt[masks.variant_deletion_reindex_mask]
+  # ALT is now aligned with REF. We also return the alignment mask,
+  # which is derived from the ALT cropping mask due to insertion handling.
+  alignment_mask = 1 - masks.variant_insertion_crop_mask[..., None]
+  alt *= alignment_mask
+  return alt

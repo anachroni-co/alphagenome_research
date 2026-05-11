@@ -18,6 +18,7 @@ from alphagenome.data import genome
 from alphagenome.models import dna_output
 from alphagenome.models import variant_scorers
 from alphagenome_research.model.variant_scoring import polyadenylation
+from alphagenome_research.model.variant_scoring import variant_scoring
 import anndata
 import chex
 import jax
@@ -147,7 +148,7 @@ class PolyadenylationTest(parameterized.TestCase):
             'Start',
             'End',
             'interval_start',
-            'Strand',
+            'strand',
             'gene_name',
             'gene_id',
             'gene_type',
@@ -219,6 +220,7 @@ class PolyadenylationTest(parameterized.TestCase):
     masks = polyadenylation.PolyadenylationVariantMasks(
         pas_mask=gene_pas_mask,
         gene_mask=np.array([True] * 5 + [False]),
+        indel_mask=variant_scoring.IndelMask.from_variant(variant, interval),
     )
     _, _, gtf, pas_gtf = _load_pas_scoring_inputs()
     variant_scorer = polyadenylation.PolyadenylationVariantScorer(
